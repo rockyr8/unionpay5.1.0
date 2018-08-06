@@ -8,9 +8,49 @@ import (
 	"net/http"
 	"time"
 	"net"
-	"encoding/base64"
-	"sort"
+	"crypto/rsa"
+	"crypto/x509"
+	"sync"
 )
+
+
+var certData *Cert
+
+// 证书信息结构体
+type Cert struct {
+	// 私钥 签名使用 700000000000001_acp.pfx
+	Private *rsa.PrivateKey
+	// 证书 与私钥为一套 700000000000001_acp.pfx
+	Cert *x509.Certificate
+	// 签名证书ID 700000000000001_acp.pfx
+	CertId string
+	// 中级证书 acp_test_middle.cer
+	MiddleCert *x509.Certificate
+	// 根证书 acp_test_root.cer
+	RootCert *x509.Certificate
+}
+
+var redisMe *Cache
+
+//测试用 的缓存
+type Cache struct {
+	Data map[string]*rsa.PublicKey
+	sync.RWMutex
+}
+
+//获取value
+func (d *Cache) Get(k string) *rsa.PublicKey {
+	d.RLock()
+	defer d.RUnlock()
+	return d.Data[k]
+}
+
+//设置value
+func (d *Cache) Set(k string, v *rsa.PublicKey) {
+	d.Lock()
+	defer d.Unlock()
+	d.Data[k] = v
+}
 
 func timeoutDialer(cTimeout time.Duration,
 	rwTimeout time.Duration) func(net, addr string) (c net.Conn, err error) {
@@ -63,12 +103,10 @@ func post(requrl string, request map[string]string) (interface{}, error) {
 			vals.Set(key, val)
 		}
 	}
-	fmt.Println("欧巴桑::", string(data), resp.StatusCode)
-	fmt.Println("==============================================================================")
 	//for k, v := range request {
 	//	fmt.Println(k, "=", v)
 	//}
-	return Verify(vals)
+	return verify(vals)
 }
 
 // urlencode
@@ -80,42 +118,3 @@ func Http_build_query(params map[string]string) string {
 	return qs.Encode()
 }
 
-// base64 加密
-func base64Encode(data []byte) string {
-	return base64.StdEncoding.EncodeToString(data)
-}
-
-// base64 解密
-func base64Decode(data string) ([]byte, error) {
-	return base64.StdEncoding.DecodeString(data)
-}
-
-type mapSorter []sortItem
-
-type sortItem struct {
-	Key string      `json:"key"`
-	Val interface{} `json:"val"`
-}
-
-func (ms mapSorter) Len() int {
-	return len(ms)
-}
-func (ms mapSorter) Less(i, j int) bool {
-	return ms[i].Key < ms[j].Key // 按键排序
-}
-func (ms mapSorter) Swap(i, j int) {
-	ms[i], ms[j] = ms[j], ms[i]
-}
-func mapSortByKey(m map[string]string, step1, step2 string) string {
-	ms := make(mapSorter, 0, len(m))
-
-	for k, v := range m {
-		ms = append(ms, sortItem{k, v})
-	}
-	sort.Sort(ms)
-	s := []string{}
-	for _, p := range ms {
-		s = append(s, p.Key+step1+p.Val.(string))
-	}
-	return strings.Join(s, step2)
-}
